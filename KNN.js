@@ -131,6 +131,7 @@ var last_timestamp;
 var last_update_time = start_time;
 var canvas;
 var ctx;
+var box_toggle = false;
 
 
 // These will be the nodes, grouped by category
@@ -264,15 +265,20 @@ function BFS_manager(){
 				current_pixel_obj.current_closest_node = start_index;
 				current_pixel_obj.current_closest_distance = distance_to_start;
 
+				var add = [];
 				var above = current_pixel - Math.ceil(p_row_size);
-				if(above >= 0 && checked.indexOf(above) == -1 && queue.indexOf(above) == -1) queue.push(above);
+				if(above >= 0 && checked.indexOf(above) == -1 && queue.indexOf(above) == -1) add.push(above);
 				var left = current_pixel - 1;
-				if(left >= 0 && checked.indexOf(left) == -1 && queue.indexOf(left) == -1 && current_pixel_obj.x > 0) queue.push(left);
+				if(left >= 0 && checked.indexOf(left) == -1 && queue.indexOf(left) == -1 && current_pixel_obj.x > 0) add.push(left);
 				var right = current_pixel + 1;
-				if(right < pixels.length && checked.indexOf(right) == -1 && queue.indexOf(right) == -1 && current_pixel_obj.x < Math.floor(p_row_size)) queue.push(right);
+				if(right < pixels.length && checked.indexOf(right) == -1 && queue.indexOf(right) == -1 && current_pixel_obj.x < Math.floor(p_row_size)) add.push(right);
 				var below = current_pixel + Math.ceil(p_row_size);
-				if(below < pixels.length && checked.indexOf(below) == -1 && queue.indexOf(below) == -1) queue.push(below);
+				if(below < pixels.length && checked.indexOf(below) == -1 && queue.indexOf(below) == -1) add.push(below);
 
+				if(box_toggle) shuffle(add);
+				for(var a = 0; a < add.length; a++){
+					queue.push(add[a]);
+				}
 				// Draw all except the starting pixel, which is colored as a node
 				if(current_pixel != start_index){
 					current_pixel_obj.owner_color = node_category_colors[node_categories.indexOf(node_category)];
@@ -289,7 +295,12 @@ function BFS_manager(){
 
 		}
 }
-
+function shuffle(a) {
+    for (let i = a.length; i; i--) {
+        let j = Math.floor(Math.random() * i);
+        [a[i - 1], a[j]] = [a[j], a[i - 1]];
+    }
+}
 function start_bfs(start_index, node_category, stack_index, timestamp){
 	var bfs_runner = {};
 	bfs_runner['options'] = [start_index, node_category, stack_index, timestamp];
@@ -365,7 +376,7 @@ window.onload = function(){
 			add_node('c1', mouseX, mouseY, time);
 		}
 		if(event.button === 1){
-			//update_screen();
+			box_toggle = !box_toggle;
 		} 
 		if(event.button === 2){
 			add_node('c2', mouseX, mouseY, time);
