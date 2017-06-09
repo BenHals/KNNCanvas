@@ -1,7 +1,9 @@
 var W = window.innerWidth, H = window.innerHeight;
-var pixel_size = 30;
+var pixel_size = 20;
 var update_time = 1;
-var pixel_fade_in = 1000;
+var update_amount = 5;
+var bsf_update_amount = 50;
+var pixel_fade_in = 2000;
 var p_row_size = W/pixel_size;
 var p_col_size = H/pixel_size;
 
@@ -25,6 +27,15 @@ class Pixel {
 
 		this.lightness_target = 100;
 		this.lightness_time_remaining = 0;
+
+		// Want later animations to overide earlier (for now)
+		this.ani_timestamp = 0;
+
+		// Vars for distance checking
+		this.current_closest_node = null;
+		this.current_closest_distance = 10000000;
+		this.owner_color = [180,100,100];
+		this.is_node = false;
 	}
 	get colorHSL() {
 		return 'hsl(' + this.hue + ',' + this.saturation + '%,' + this.lightness +'%)';
@@ -33,15 +44,19 @@ class Pixel {
 		this.ctx.fillStyle = this.colorHSL;
 		this.ctx.fillRect(this.pixel_x, this.pixel_y, this.size, this.size);
 	}
-
-	change_color(change_to){
+	check_timestamp(ts){
+		return ts > this.ani_timestamp;
+	}
+	change_color(change_to, ts){
 		this.hue_target = change_to;
 		this.hue_time_remaining = pixel_fade_in;
+		this.ani_timestamp = ts;
 	}
 
-	change_lightness(change_to){
+	change_lightness(change_to, ts){
 		this.lightness_target = change_to;
 		this.lightness_time_remaining = pixel_fade_in;
+		this.ani_timestamp = ts;
 	}
 
 	hue_animate(time_delta){
@@ -109,24 +124,60 @@ class Pixel {
 }
 // Make pixel grid
 var pixels = [];
-var pixel_draw_stack = [];
+var pixel_draw_stack = [[[1,0],[2,0],[3,0],[4,0],[5,0]]];
+var BFS_threads = [];
 var start_time = new Date();
 var last_timestamp;
 var last_update_time = start_time;
 var canvas;
 var ctx;
 
-function turn_on_random(chance_per_frame){
+
+// These will be the nodes, grouped by category
+var nodes = [];
+
+// Set up node categories
+var node_categories = ['c1', 'c2'];
+// cool colors
+var node_category_colors = [[71,100,96],[301,100,6]];
+//var node_category_colors = [[Math.random()*360,100,Math.random()*50 + 50],[Math.random()*360,100,Math.random()*50]]
+for(var c = 0; c < node_categories.length; c++){
+	nodes.push([]);
+}
+
+function turn_on_random(chance_per_frame, index_time){
+	var index = index_time[0];
+	var timestamp = index_time[1];
+	if(index == -1) return
 	var turn_on = Math.random();
 	if(turn_on <= chance_per_frame){
-		var random_pixel_index = Math.round(Math.random() * (p_row_size*p_col_size));
+		var random_pixel_index = index != undefined ? index : Math.round(Math.random() * (p_row_size*p_col_size));
 		var random_color = Math.floor(Math.random()*360)
-
-		pixels[random_pixel_index].turn_on();
-		pixels[random_pixel_index].change_color(random_color);
+		if(pixels[random_pixel_index].check_timestamp(timestamp)){
+			pixels[random_pixel_index].turn_on();
+			pixels[random_pixel_index].change_color(random_color, timestamp);
+		}
 	}
 }
+
+function turn_on_category(index_time){
+	var index = index_time[0];
+	var timestamp = index_time[1];
+
+	if(index == -1) return
+
+	//if(pixels[index].check_timestamp(timestamp)){
+		pixels[index].turn_on();
+		var color = pixels[index].owner_color;
+		pixels[index].change_color(color[0], timestamp);
+		pixels[index].change_lightness(color[2], timestamp);
+	//}
+	
+}
 function update_screen(timestamp){
+	for(var i =0; i < bsf_update_amount; i++){
+		BFS_manager();
+	}
 	if(!last_timestamp) last_timestamp = timestamp;
 	var timestamp_diff = timestamp-last_timestamp;
 	last_timestamp = timestamp;
@@ -144,8 +195,25 @@ function update_screen(timestamp){
 
 	// Do major update if time
 	if(new_update){
-		// logic to turn on or off pixels
-		turn_on_random(1);
+		for(var u = 0;u < update_amount; u++){
+			// logic to turn on or off pixels
+			// take off top element of all pixel_draw_stacks
+			var empty_stacks = [];
+			for(var stack = 0; stack < pixel_draw_stack.length; stack++){
+				stack_size = pixel_draw_stack[stack].length;
+				if(stack_size > 0){
+					var first_in_stack = pixel_draw_stack[stack].shift();
+					var index = first_in_stack != undefined ? first_in_stack : -1;
+					turn_on_category(index);
+				}else{
+					empty_stacks.push(stack);
+				}
+			}
+
+			for(var es = 0; es < empty_stacks.length; es++){
+				//pixel_draw_stack.splice(es,1);
+			}
+		}
 	}
 
 
@@ -160,7 +228,120 @@ function update_screen(timestamp){
 
 	window.requestAnimationFrame(update_screen);
 }
+function get_distance(A,B){
+	return Math.sqrt(Math.pow(A[0] - B[0],2)+Math.pow(A[1] - B[1], 2));
+}
 
+function BFS_manager(){
+	var counter = 0;
+		counter++;
+		for(var i =0; i < BFS_threads.length; i++){
+			var bfs_runner = BFS_threads[i];
+
+			var queue = bfs_runner['queue'];
+			if(queue.length <= 0) continue;
+			
+			var options = bfs_runner['options'];
+			var start_index = options[0];
+			var node_category = options[1];
+			var stack_index = options[2];
+			var timestamp = options[3];
+			
+			var checked = bfs_runner['checked'];
+			var start_position = bfs_runner['start_position'];
+			
+			var current_pixel = queue.pop();
+			var current_pixel_obj = pixels[current_pixel];
+			if(current_pixel_obj == undefined){
+				alert('why');
+			}
+			var current_pixel_position = [current_pixel_obj.x + pixel_size/2, current_pixel_obj.y + pixel_size/2];
+
+			var distance_to_start = get_distance(start_position, current_pixel_position);
+			if(current_pixel_obj.current_closest_distance > distance_to_start){
+
+				// Since the starting node is the closest to the pixel, set it as new closest
+				current_pixel_obj.current_closest_node = start_index;
+				current_pixel_obj.current_closest_distance = distance_to_start;
+
+				var above = current_pixel - Math.ceil(p_row_size);
+				if(above >= 0 && checked.indexOf(above) == -1 && queue.indexOf(above) == -1) queue.push(above);
+				var left = current_pixel - 1;
+				if(left >= 0 && checked.indexOf(left) == -1 && queue.indexOf(left) == -1 && current_pixel_obj.x > 0) queue.push(left);
+				var right = current_pixel + 1;
+				if(right < pixels.length && checked.indexOf(right) == -1 && queue.indexOf(right) == -1 && current_pixel_obj.x < Math.floor(p_row_size)) queue.push(right);
+				var below = current_pixel + Math.ceil(p_row_size);
+				if(below < pixels.length && checked.indexOf(below) == -1 && queue.indexOf(below) == -1) queue.push(below);
+
+				// Draw all except the starting pixel, which is colored as a node
+				if(current_pixel != start_index){
+					current_pixel_obj.owner_color = node_category_colors[node_categories.indexOf(node_category)];
+					pixel_draw_stack[stack_index].push([current_pixel,timestamp]);
+				}else{
+					current_pixel_obj.current_closest_node = start_index;
+					current_pixel_obj.current_closest_distance = 0;
+					current_pixel_obj.is_node = true;
+					current_pixel_obj.owner_color = [180, 100, 100*node_categories.indexOf(node_category)];
+					pixel_draw_stack[stack_index].push([current_pixel,timestamp]);
+				}
+			}
+			checked.push(current_pixel);
+
+		}
+}
+
+function start_bfs(start_index, node_category, stack_index, timestamp){
+	var bfs_runner = {};
+	bfs_runner['options'] = [start_index, node_category, stack_index, timestamp];
+	bfs_runner['queue'] = [start_index];
+	bfs_runner['checked'] = [];
+	bfs_runner['start_position'] = [pixels[start_index].x + pixel_size/2, pixels[start_index].y + pixel_size/2];
+
+	BFS_threads.push(bfs_runner);
+}
+function BFS(start_index, node_category, stack_index, timestamp){
+	var queue = [start_index];
+	var checked = [];
+	var start_position = [pixels[start_index].x + pixel_size/2, pixels[start_index].y + pixel_size/2];
+	while(queue.length > 0 && checked.length < 100000000){
+		var current_pixel = queue.shift();
+		var current_pixel_obj = pixels[current_pixel];
+		var current_pixel_position = [current_pixel_obj.x + pixel_size/2, current_pixel_obj.y + pixel_size/2];
+
+		var distance_to_start = get_distance(start_position, current_pixel_position);
+		if(current_pixel_obj.current_closest_distance > distance_to_start){
+
+			// Since the starting node is the closest to the pixel, set it as new closest
+			current_pixel_obj.current_closest_node = start_index;
+			current_pixel_obj.current_closest_distance = distance_to_start;
+
+			var above = current_pixel - Math.ceil(p_row_size);
+			if(above >= 0 && checked.indexOf(above) == -1 && queue.indexOf(above) == -1) queue.push(above);
+			var left = current_pixel - 1;
+			if(left >= 0 && checked.indexOf(left) == -1 && queue.indexOf(left) == -1 && current_pixel_obj.x > 0) queue.push(left);
+			var right = current_pixel + 1;
+			if(right < pixels.length && checked.indexOf(right) == -1 && queue.indexOf(right) == -1 && current_pixel_obj.x < Math.floor(p_row_size)) queue.push(right);
+			var below = current_pixel + Math.ceil(p_row_size);
+			if(below < pixels.length && checked.indexOf(below) == -1 && queue.indexOf(below) == -1) queue.push(below);
+
+			// Draw all except the starting pixel, which is colored as a node
+			if(current_pixel != start_index){
+				current_pixel_obj.owner_color = node_category_colors[node_categories.indexOf(node_category)];
+				pixel_draw_stack[stack_index].push([current_pixel,timestamp]);
+			}else{
+				current_pixel_obj.current_closest_node = start_index;
+				current_pixel_obj.current_closest_distance = 0;
+				current_pixel_obj.is_node = true;
+				current_pixel_obj.owner_color = [180, 100, 100*node_categories.indexOf(node_category)];
+				pixel_draw_stack[stack_index].push([current_pixel,timestamp]);
+			}
+		}
+		checked.push(current_pixel);
+
+	}
+
+
+}
 window.onload = function(){
 
 	// Setup Canvas
@@ -177,26 +358,17 @@ window.onload = function(){
 
 	// Canvas Click event listener
 	canvas.addEventListener("mousedown",function(event){
-
 		var mouseX = event.pageX;
 		var mouseY = event.pageY;
-
+		var time = new Date();	
 		if(event.button ===0){
-			var pixel_x = Math.floor(mouseX/pixel_size);
-			var pixel_y = Math.floor(mouseY/pixel_size);
-
-			var pixel_index = (pixel_y * Math.ceil(p_row_size)) + pixel_x;
-
-			var random_color = Math.floor(Math.random()*360)
-
-			pixels[pixel_index].turn_on();
-			pixels[pixel_index].change_color(random_color);
+			add_node('c1', mouseX, mouseY, time);
 		}
 		if(event.button === 1){
-			alert("middle mouse button")
+			//update_screen();
 		} 
 		if(event.button === 2){
-			update_screen();
+			add_node('c2', mouseX, mouseY, time);
 		} 
 		
 
@@ -207,6 +379,21 @@ window.onload = function(){
 			pixels.push(new Pixel(pixel_size, x, y, ctx))
 		}
 	}
+	BFS_manager();
+	window.requestAnimationFrame(update_screen);
+}
 
-	//window.requestAnimationFrame(update_screen);
+function add_node(node_category, mouseX, mouseY, time){
+		var pixel_x = Math.floor(mouseX/pixel_size);
+		var pixel_y = Math.floor(mouseY/pixel_size);
+
+		var pixel_index = (pixel_y * Math.ceil(p_row_size)) + pixel_x;
+		var stack_index = pixel_draw_stack.length;
+		pixel_draw_stack.push([]);
+		start_bfs(pixel_index, node_category, stack_index, time- start_time);
+		//pixel_draw_stack.push(pixel_index);
+		// var random_color = Math.floor(Math.random()*360)
+
+		// pixels[pixel_index].turn_on();
+		// pixels[pixel_index].change_color(random_color);
 }
