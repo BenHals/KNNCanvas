@@ -131,7 +131,7 @@ var last_timestamp;
 var last_update_time = start_time;
 var canvas;
 var ctx;
-var box_toggle = false;
+var box_toggle = 0;
 
 
 // These will be the nodes, grouped by category
@@ -250,8 +250,12 @@ function BFS_manager(){
 			
 			var checked = bfs_runner['checked'];
 			var start_position = bfs_runner['start_position'];
-			
-			var current_pixel = queue.pop();
+			var current_pixel;
+            if(box_toggle == 0){
+                current_pixel = queue.shift();
+            }else{
+                current_pixel = queue.pop();
+            }
 			var current_pixel_obj = pixels[current_pixel];
 			if(current_pixel_obj == undefined){
 				alert('why');
@@ -275,7 +279,7 @@ function BFS_manager(){
 				var below = current_pixel + Math.ceil(p_row_size);
 				if(below < pixels.length && checked.indexOf(below) == -1 && queue.indexOf(below) == -1) add.push(below);
 
-				if(box_toggle) shuffle(add);
+				if(box_toggle == 2) shuffle(add);
 				for(var a = 0; a < add.length; a++){
 					queue.push(add[a]);
 				}
@@ -315,7 +319,8 @@ function BFS(start_index, node_category, stack_index, timestamp){
 	var checked = [];
 	var start_position = [pixels[start_index].x + pixel_size/2, pixels[start_index].y + pixel_size/2];
 	while(queue.length > 0 && checked.length < 100000000){
-		var current_pixel = queue.shift();
+		//var current_pixel = queue.shift();
+        var current_pixel = queue.pop();
 		var current_pixel_obj = pixels[current_pixel];
 		var current_pixel_position = [current_pixel_obj.x + pixel_size/2, current_pixel_obj.y + pixel_size/2];
 
@@ -376,7 +381,8 @@ window.onload = function(){
 			add_node('c1', mouseX, mouseY, time);
 		}
 		if(event.button === 1){
-			box_toggle = !box_toggle;
+			box_toggle++;
+            box_toggle %= 3;
 		} 
 		if(event.button === 2){
 			add_node('c2', mouseX, mouseY, time);
@@ -384,7 +390,13 @@ window.onload = function(){
 		
 
 	},false);
-	
+   document.onkeypress = function(e){
+        e =e || window.event;
+        if(e.keyCode == 32){
+            box_toggle++;
+            box_toggle %= 3;
+        }
+    }
 	for(var y = 0; y < p_col_size; y++){
 		for(var x = 0; x < p_row_size; x++){
 			pixels.push(new Pixel(pixel_size, x, y, ctx))
